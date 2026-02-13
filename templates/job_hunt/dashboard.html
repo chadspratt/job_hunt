@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Job Hunt{% if hunt %} – {{ hunt.name }}{% endif %}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #333; padding: 20px; }
+
+        /* Header / Countdown */
+        .hunt-header { background: #fff; border-radius: 8px; padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.1); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+        .hunt-header h1 { font-size: 1.5rem; }
+        .hunt-header .countdown { font-size: 1.3rem; font-weight: 600; color: #0d6efd; }
+        .hunt-header .target-date { color: #666; font-size: .9rem; }
+        .hunt-selector select { padding: 6px 10px; border-radius: 4px; border: 1px solid #ccc; }
+
+        /* Messages */
+        .messages { margin-bottom: 16px; }
+        .messages .success { background: #d4edda; color: #155724; padding: 10px 14px; border-radius: 6px; margin-bottom: 6px; }
+        .messages .error { background: #f8d7da; color: #721c24; padding: 10px 14px; border-radius: 6px; margin-bottom: 6px; }
+
+        /* Toolbar */
+        .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+        .toolbar label { font-weight: 600; font-size: .9rem; }
+        .toolbar select, .toolbar input[type="checkbox"] { margin-left: 4px; }
+
+        /* Buttons */
+        .btn { display: inline-block; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: .85rem; text-decoration: none; color: #fff; }
+        .btn-primary { background: #0d6efd; }
+        .btn-primary:hover { background: #0b5ed7; }
+        .btn-success { background: #198754; }
+        .btn-success:hover { background: #157347; }
+        .btn-warning { background: #ffc107; color: #333; }
+        .btn-warning:hover { background: #e0a800; }
+        .btn-secondary { background: #6c757d; }
+        .btn-secondary:hover { background: #5a6268; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #bb2d3b; }
+        .btn-sm { padding: 4px 10px; font-size: .8rem; }
+
+        /* Cards */
+        .posting-list { display: flex; flex-direction: column; gap: 12px; }
+        .posting-card { background: #fff; border-radius: 8px; padding: 16px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); display: grid; grid-template-columns: 1fr auto; gap: 8px 20px; }
+        .posting-card.hidden-card { opacity: .55; }
+        .posting-card .title-row { display: flex; align-items: baseline; gap: 10px; }
+        .posting-card .title-row h3 { font-size: 1.1rem; margin: 0; }
+        .posting-card .title-row h3 a { color: #0d6efd; text-decoration: none; }
+        .posting-card .title-row h3 a:hover { text-decoration: underline; }
+        .posting-card .company { color: #555; font-weight: 600; }
+        .posting-card .meta { font-size: .85rem; color: #666; display: flex; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
+        .posting-card .meta span { white-space: nowrap; }
+        .posting-card .actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; justify-content: center; }
+        .posting-card .description-preview { font-size: .85rem; color: #777; margin-top: 4px; grid-column: 1 / -1; }
+
+        /* Application badge */
+        .app-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: .75rem; font-weight: 600; }
+        .app-badge.Bookmarked { background: #e2e3e5; color: #383d41; }
+        .app-badge.Applied { background: #cce5ff; color: #004085; }
+        .app-badge.PhoneScreen, .app-badge.Interview, .app-badge.TakeHome, .app-badge.FinalRound { background: #fff3cd; color: #856404; }
+        .app-badge.Offer { background: #d4edda; color: #155724; }
+        .app-badge.Rejected { background: #f8d7da; color: #721c24; }
+        .app-badge.Withdrawn { background: #e2e3e5; color: #6c757d; }
+
+        /* Sort link active */
+        .sort-link { text-decoration: none; color: #0d6efd; padding: 4px 8px; border-radius: 4px; font-size: .85rem; }
+        .sort-link:hover { background: #e7f1ff; }
+        .sort-link.active { font-weight: 700; background: #cce5ff; }
+
+        /* Modal / forms */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.4); z-index: 100; justify-content: center; align-items: flex-start; padding-top: 80px; }
+        .modal-overlay.active { display: flex; }
+        .modal { background: #fff; border-radius: 10px; padding: 24px; width: 500px; max-width: 95vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 30px rgba(0,0,0,.2); }
+        .modal h2 { margin-bottom: 16px; font-size: 1.2rem; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; font-weight: 600; margin-bottom: 4px; font-size: .85rem; }
+        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: .9rem; }
+        .form-group textarea { resize: vertical; min-height: 60px; }
+        .form-row { display: flex; gap: 12px; }
+        .form-row .form-group { flex: 1; }
+        .form-check { display: flex; align-items: center; gap: 6px; }
+        .form-check input { width: auto; }
+        .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+        .empty-state { text-align: center; padding: 40px; color: #999; }
+
+        /* Main layout with events panel */
+        .main-content { display: flex; gap: 20px; }
+        .main-column { flex: 1; min-width: 0; }
+        .events-panel { width: 320px; background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.1); height: fit-content; position: sticky; top: 20px; }
+        .events-panel h2 { font-size: 1.2rem; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+        .events-list { display: flex; flex-direction: column; gap: 12px; }
+        .event-card { background: #f8f9fa; border-radius: 6px; padding: 12px; border-left: 3px solid #0d6efd; }
+        .event-card .event-title { font-weight: 600; font-size: .9rem; margin-bottom: 6px; }
+        .event-card .event-date { font-size: .8rem; color: #666; margin-bottom: 4px; }
+        .event-card .event-timer { font-size: 1.1rem; font-weight: 700; color: #0d6efd; margin-bottom: 8px; }
+        .event-card .event-actions { display: flex; gap: 6px; }
+        .events-empty { text-align: center; color: #999; padding: 20px; font-size: .85rem; }
+    </style>
+</head>
+<body>
+
+{% if messages %}
+<div class="messages">
+    {% for message in messages %}
+    <div class="{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Hunt header -->
+<div class="hunt-header">
+    <div>
+        {% if hunt %}
+        <h1>{{ hunt.name }}</h1>
+        {% if hunt.target_date %}
+        <div class="target-date">Target: {{ hunt.target_date|date:"N j, Y" }}</div>
+        <div class="countdown" id="countdown"></div>
+        {% endif %}
+        {% else %}
+        <h1>Job Hunt</h1>
+        <p>No job hunts yet. Create one to get started.</p>
+        {% endif %}
+    </div>
+    <div style="display: flex; gap: 10px; align-items: center;">
+        {% if all_hunts %}
+        <form class="hunt-selector" method="get">
+            <select name="hunt" onchange="this.form.submit()">
+                {% for h in all_hunts %}
+                <option value="{{ h.id }}" {% if hunt and h.id == hunt.id %}selected{% endif %}>{{ h.name }}</option>
+                {% endfor %}
+            </select>
+        </form>
+        {% endif %}
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('newHuntModal').classList.add('active')">+ New Hunt</button>
+    </div>
+</div>
+
+<div class="main-content">
+<div class="main-column">
+
+{% if hunt %}
+<!-- Toolbar: sort + filters + add -->
+<div class="toolbar">
+    <label>Sort:</label>
+    {% with base_url="/job_hunt/?hunt="|add:hunt_id_str %}
+    <a class="sort-link {% if current_sort == 'company' or current_sort == '-company' %}active{% endif %}"
+       href="?hunt={{ hunt.id }}&sort={% if current_sort == 'company' %}-company{% else %}company{% endif %}&show_hidden={{ show_hidden|yesno:'1,0' }}">Company {% if current_sort == 'company' %}▲{% elif current_sort == '-company' %}▼{% endif %}</a>
+    <a class="sort-link {% if current_sort == 'title' or current_sort == '-title' %}active{% endif %}"
+       href="?hunt={{ hunt.id }}&sort={% if current_sort == 'title' %}-title{% else %}title{% endif %}&show_hidden={{ show_hidden|yesno:'1,0' }}">Title {% if current_sort == 'title' %}▲{% elif current_sort == '-title' %}▼{% endif %}</a>
+    <a class="sort-link {% if current_sort == 'date_posted' or current_sort == '-date_posted' %}active{% endif %}"
+       href="?hunt={{ hunt.id }}&sort={% if current_sort == '-date_posted' %}date_posted{% else %}-date_posted{% endif %}&show_hidden={{ show_hidden|yesno:'1,0' }}">Date {% if current_sort == 'date_posted' %}▲{% elif current_sort == '-date_posted' %}▼{% endif %}</a>
+    <a class="sort-link {% if current_sort == '-max_salary' or current_sort == 'max_salary' %}active{% endif %}"
+       href="?hunt={{ hunt.id }}&sort={% if current_sort == '-max_salary' %}max_salary{% else %}-max_salary{% endif %}&show_hidden={{ show_hidden|yesno:'1,0' }}">Salary {% if current_sort == 'max_salary' %}▲{% elif current_sort == '-max_salary' %}▼{% endif %}</a>
+    <a class="sort-link {% if current_sort == 'distance_from_home' or current_sort == '-distance_from_home' %}active{% endif %}"
+       href="?hunt={{ hunt.id }}&sort={% if current_sort == 'distance_from_home' %}-distance_from_home{% else %}distance_from_home{% endif %}&show_hidden={{ show_hidden|yesno:'1,0' }}">Distance {% if current_sort == 'distance_from_home' %}▲{% elif current_sort == '-distance_from_home' %}▼{% endif %}</a>
+    {% endwith %}
+
+    <span style="margin-left: auto;"></span>
+    <label class="form-check" style="font-weight:normal; font-size:.85rem;">
+        <input type="checkbox" onchange="window.location.href='?hunt={{ hunt.id }}&sort={{ current_sort }}&show_hidden=' + (this.checked ? '1' : '0')" {% if show_hidden %}checked{% endif %}>
+        Show hidden
+    </label>
+    <button class="btn btn-success btn-sm" onclick="document.getElementById('newPostingModal').classList.add('active')">+ Add Posting</button>
+</div>
+
+<!-- Postings list -->
+<div class="posting-list">
+    {% for posting in postings %}
+    <div class="posting-card {% if posting.hidden %}hidden-card{% endif %}">
+        <div>
+            <div class="title-row">
+                <h3>{% if posting.url %}<a href="{{ posting.url }}" target="_blank">{{ posting.title }}</a>{% else %}{{ posting.title }}{% endif %}</h3>
+                <span class="company">{{ posting.company }}</span>
+                {% if posting.application %}
+                <span class="app-badge {{ posting.application.status }}">{{ posting.application.status }}</span>
+                {% endif %}
+            </div>
+            <div class="meta">
+                {% if posting.location %}<span>📍 {{ posting.location }}</span>{% endif %}
+                {% if posting.distance_from_home %}<span>🚴 {{ posting.distance_from_home|floatformat:0 }} min</span>{% endif %}
+                {% if posting.salary_display %}<span>💰 {{ posting.salary_display }}</span>{% endif %}
+                {% if posting.is_remote_only %}<span>🏠 Remote</span>{% endif %}
+                {% if posting.is_in_office_only %}<span>🏢 In-office</span>{% endif %}
+                {% if not posting.is_in_office_only and not posting.is_remote_only %}<span>🌐 Hybrid</span>{% endif %}
+                <span>📅 {{ posting.date_posted|date:"M j" }}</span>
+            </div>
+            {% if posting.description %}<div class="description-preview">{{ posting.description|truncatewords:30 }}</div>{% endif %}
+        </div>
+        <div class="actions">
+            {% if posting.application %}
+            <a class="btn btn-warning btn-sm" href="{% url 'edit_application' posting.application.id %}">Edit Application</a>
+            {% else %}
+            <button class="btn btn-success btn-sm" onclick="openApplyModal('{{ posting.id }}', '{{ posting.title|escapejs }}')">Apply</button>
+            {% endif %}
+            <a class="btn btn-secondary btn-sm" href="{% url 'edit_posting' posting.id %}">Edit</a>
+            <a class="btn btn-sm {% if posting.hidden %}btn-primary{% else %}btn-danger{% endif %}" href="{% url 'toggle_posting_hidden' posting.id %}">{% if posting.hidden %}Unhide{% else %}Hide{% endif %}</a>
+        </div>
+    </div>
+    {% empty %}
+    <div class="empty-state">
+        <p>No postings yet. Click <strong>+ Add Posting</strong> to get started.</p>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+</div><!-- main-column -->
+
+<!-- Events Panel -->
+<div class="events-panel">
+    <h2>
+        ⏱️ Past Events
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('newEventModal').classList.add('active')">+</button>
+    </h2>
+    <div class="events-list" id="eventsList">
+        {% if events %}
+        {% for event in events %}
+        <div class="event-card" data-event-id="{{ event.id }}" data-event-date="{{ event.date.isoformat }}">
+            <div class="event-title">{{ event.title }}</div>
+            <div class="event-date">{{ event.date|date:"N j, Y" }}</div>
+            <div class="event-timer" data-timer="{{ event.id }}"></div>
+            <div class="event-actions">
+                <button class="btn btn-primary btn-sm" onclick="updateEventToNow({{ event.id }})">Set to Now</button>
+            </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="events-empty">No events yet. Click + to add one.</div>
+        {% endif %}
+    </div>
+</div>
+
+</div><!-- main-content -->
+
+<!-- New Hunt Modal -->
+<div class="modal-overlay" id="newHuntModal" onclick="if(event.target===this)this.classList.remove('active')">
+    <div class="modal">
+        <h2>New Job Hunt</h2>
+        <form method="post" action="{% url 'create_hunt' %}">
+            {% csrf_token %}
+            <div class="form-group">
+                <label>Name *</label>
+                <input type="text" name="name" required placeholder="e.g. 2026 Job Search">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea name="description" placeholder="Optional notes..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Target Date</label>
+                <input type="date" name="target_date">
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="this.closest('.modal-overlay').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if hunt %}
+<!-- New Posting Modal -->
+<div class="modal-overlay" id="newPostingModal" onclick="if(event.target===this)this.classList.remove('active')">
+    <div class="modal">
+        <h2>Add Job Posting</h2>
+        <form method="post" action="{% url 'create_posting' %}">
+            {% csrf_token %}
+            <input type="hidden" name="hunt" value="{{ hunt.id }}">
+            <div class="form-group">
+                <label>Title *</label>
+                <input type="text" name="title" required placeholder="Software Engineer">
+            </div>
+            <div class="form-group">
+                <label>Company *</label>
+                <input type="text" name="company" required placeholder="Acme Corp">
+            </div>
+            <div class="form-group">
+                <label>URL</label>
+                <input type="url" name="url" placeholder="https://...">
+            </div>
+            <div class="form-group">
+                <label>Location</label>
+                <input type="text" name="location" placeholder="City, State">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Min Salary</label>
+                    <input type="number" name="min_salary" placeholder="80000">
+                </div>
+                <div class="form-group">
+                    <label>Max Salary</label>
+                    <input type="number" name="max_salary" placeholder="120000">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Commute (minutes)</label>
+                <input type="number" name="distance_from_home" step="1" placeholder="30">
+            </div>
+            <div class="form-row">
+                <div class="form-group form-check">
+                    <input type="checkbox" name="is_remote_only" id="new_remote"> <label for="new_remote">Remote only</label>
+                </div>
+                <div class="form-group form-check">
+                    <input type="checkbox" name="is_in_office_only" id="new_office"> <label for="new_office">In-office only</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea name="description" placeholder="Job details..."></textarea>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="this.closest('.modal-overlay').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn btn-success">Add Posting</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Apply Modal -->
+<div class="modal-overlay" id="applyModal" onclick="if(event.target===this)this.classList.remove('active')">
+    <div class="modal">
+        <h2>Apply – <span id="applyTitle"></span></h2>
+        <form method="post" id="applyForm">
+            {% csrf_token %}
+            <div class="form-group">
+                <label>Status</label>
+                <select name="status">
+                    {% for value, label in statuses.choices %}
+                    <option value="{{ value }}" {% if value == 'Applied' %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Notes</label>
+                <textarea name="notes" placeholder="Cover letter sent, referral from..."></textarea>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="this.closest('.modal-overlay').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn btn-success">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<script>
+// Countdown timer
+{% if hunt and hunt.target_date %}
+(function() {
+    const target = new Date("{{ hunt.target_date|date:'Y-m-d' }}T00:00:00");
+    const el = document.getElementById('countdown');
+    function update() {
+        const now = new Date();
+        const diff = target - now;
+        if (diff <= 0) { el.textContent = 'Target date reached!'; return; }
+        const days = Math.floor(diff / 86400000);
+        const hours = Math.floor((diff % 86400000) / 3600000);
+        const mins = Math.floor((diff % 3600000) / 60000);
+        const secs = Math.floor((diff % 60000) / 1000);
+        el.textContent = days + 'd ' + hours + 'h ' + mins + 'm ' + secs + 's remaining';
+    }
+    update();
+    setInterval(update, 1000);
+})();
+{% endif %}
+
+function openApplyModal(postingId, title) {
+    document.getElementById('applyTitle').textContent = title;
+    document.getElementById('applyForm').action = '/job_hunt/apply/' + postingId + '/';
+    document.getElementById('applyModal').classList.add('active');
+}
+
+// Event timer updates
+(function() {
+    function updateTimers() {
+        document.querySelectorAll('[data-timer]').forEach(el => {
+            const eventCard = el.closest('.event-card');
+            const eventDate = new Date(eventCard.dataset.eventDate);
+            const now = new Date();
+            const diff = now - eventDate;
+            
+            if (diff < 0) {
+                el.textContent = 'Future event';
+                return;
+            }
+            
+            const days = Math.floor(diff / 86400000);
+            const hours = Math.floor((diff % 86400000) / 3600000);
+            const mins = Math.floor((diff % 3600000) / 60000);
+            const secs = Math.floor((diff % 60000) / 1000);
+            
+            if (days > 0) {
+                el.textContent = days + 'd ' + hours + 'h ago';
+            } else if (hours > 0) {
+                el.textContent = hours + 'h ' + mins + 'm ago';
+            } else if (mins > 0) {
+                el.textContent = mins + 'm ' + secs + 's ago';
+            } else {
+                el.textContent = secs + 's ago';
+            }
+        });
+    }
+    updateTimers();
+    setInterval(updateTimers, 1000);
+})();
+
+function updateEventToNow(eventId) {
+    fetch('/job_hunt/event/' + eventId + '/update/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({set_to_now: true})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error updating event');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error updating event');
+    });
+}
+</script>
+
+<!-- New Event Modal -->
+<div class="modal-overlay" id="newEventModal" onclick="if(event.target===this)this.classList.remove('active')">
+    <div class="modal">
+        <h2>Add Past Event</h2>
+        <form method="post" action="{% url 'create_event' %}">
+            {% csrf_token %}
+            <div class="form-group">
+                <label>Title *</label>
+                <input type="text" name="title" required placeholder="e.g. Started job search">
+            </div>
+            <div class="form-group">
+                <label>Date *</label>
+                <input type="date" name="date" required>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="this.closest('.modal-overlay').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add Event</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Edit Application – {{ application.job_posting.title }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #333; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: #fff; border-radius: 10px; padding: 28px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+        h1 { font-size: 1.3rem; margin-bottom: 6px; }
+        .subtitle { color: #666; font-size: .9rem; margin-bottom: 20px; }
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; font-weight: 600; margin-bottom: 4px; font-size: .85rem; }
+        .form-group select, .form-group textarea { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: .9rem; }
+        .form-group textarea { resize: vertical; min-height: 120px; }
+        .btn { display: inline-block; padding: 8px 18px; border: none; border-radius: 6px; cursor: pointer; font-size: .9rem; text-decoration: none; color: #fff; }
+        .btn-primary { background: #0d6efd; }
+        .btn-primary:hover { background: #0b5ed7; }
+        .btn-secondary { background: #6c757d; }
+        .btn-secondary:hover { background: #5a6268; }
+        .form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+        .info { font-size: .85rem; color: #888; margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Edit Application</h1>
+    <div class="subtitle">{{ application.job_posting.title }} at {{ application.job_posting.company }}</div>
+    <div class="info">Applied: {{ application.date_applied|date:"N j, Y" }}</div>
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-group">
+            <label>Status</label>
+            <select name="status">
+                {% for value, label in statuses.choices %}
+                <option value="{{ value }}" {% if application.status == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Notes</label>
+            <textarea name="notes">{{ application.notes|default:'' }}</textarea>
+        </div>
+        <div class="form-actions">
+            <a class="btn btn-secondary" href="/job_hunt/?hunt={{ application.job_posting.job_hunt_id }}">Cancel</a>
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+    </form>
+</div>
+</body>
+</html>
