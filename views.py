@@ -1,8 +1,11 @@
 import json
+import subprocess
+import threading
 from datetime import datetime
+from pathlib import Path
 
 from django.contrib import messages
-from django.http import JsonResponse
+from django.http import FileResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -195,6 +198,83 @@ def create_event(request):
             messages.error(request, 'Title and date are required.')
     
     return redirect('/job_hunt/')
+
+
+_CV_BUILDER_DIR = Path(__file__).resolve().parent / 'cv_builder'
+_CV_PDF_PATH = _CV_BUILDER_DIR / 'src' / 'rendered' / 'moderncv.pdf'
+
+# Module-level state for async resume build (fine for single-process dev server)
+_resume_state = {'status': 'idle', 'error': ''}
+_resume_lock = threading.Lock()
+
+
+def _run_resume_build():
+    """Background thread: run the cv_builder Docker pipeline."""
+    rendered_dir = _CV_BUILDER_DIR / 'src' / 'rendered'
+    rendered_dir.mkdir(exist_ok=True)
+    try:
+        for cmd, label in [
+            (['docker', 'compose', 'build', 'composer'], 'Docker build'),
+            (['docker', 'compose', '-p', 'cv', 'run', '--rm', 'composer', 'python', 'main.py'], 'Resume render'),
+            (['docker', 'compose', '-p', 'cv', 'run', '--rm', 'windmill', 'latexmk', '-pdf'], 'PDF build'),
+        ]:
+            r = subprocess.run(
+                cmd, cwd=_CV_BUILDER_DIR,
+                capture_output=True, text=True, timeout=600,
+            )
+            if r.returncode != 0:
+                with _resume_lock:
+                    _resume_state['status'] = 'error'
+                    _resume_state['error'] = f'{label} failed: {(r.stderr or r.stdout)[-500:]}'
+                return
+
+        if not _CV_PDF_PATH.exists():
+            with _resume_lock:
+                _resume_state['status'] = 'error'
+                _resume_state['error'] = 'PDF was not produced. Check the cv_builder output.'
+            return
+
+        with _resume_lock:
+            _resume_state['status'] = 'done'
+    except subprocess.TimeoutExpired:
+        with _resume_lock:
+            _resume_state['status'] = 'error'
+            _resume_state['error'] = 'Resume generation timed out (>10 min).'
+    except FileNotFoundError:
+        with _resume_lock:
+            _resume_state['status'] = 'error'
+            _resume_state['error'] = 'Docker was not found. Ensure Docker Desktop is running.'
+
+
+@require_POST
+def generate_resume(request):
+    """Kick off the cv_builder pipeline in a background thread."""
+    with _resume_lock:
+        if _resume_state['status'] == 'building':
+            return JsonResponse({'status': 'building'})
+        _resume_state['status'] = 'building'
+        _resume_state['error'] = ''
+    threading.Thread(target=_run_resume_build, daemon=True).start()
+    return JsonResponse({'status': 'building'})
+
+
+def resume_status(request):
+    """Return the current build status as JSON."""
+    with _resume_lock:
+        return JsonResponse(dict(_resume_state))
+
+
+def download_resume(request):
+    """Serve the generated PDF."""
+    if not _CV_PDF_PATH.exists():
+        messages.error(request, 'No resume PDF found. Generate one first.')
+        return redirect('/job_hunt/?tab=resume')
+    return FileResponse(
+        open(_CV_PDF_PATH, 'rb'),
+        content_type='application/pdf',
+        as_attachment=False,
+        filename='resume.pdf',
+    )
 
 
 @require_POST

@@ -94,6 +94,20 @@
         .event-card .event-timer { font-size: 1.1rem; font-weight: 700; color: #0d6efd; margin-bottom: 8px; }
         .event-card .event-actions { display: flex; gap: 6px; }
         .events-empty { text-align: center; color: #999; padding: 20px; font-size: .85rem; }
+
+        /* Tabs */
+        .tab-bar { display: flex; gap: 0; border-bottom: 2px solid #dee2e6; margin-bottom: 16px; }
+        .tab-btn { background: none; border: none; padding: 10px 20px; font-size: .95rem; font-weight: 600; cursor: pointer; color: #6c757d; border-bottom: 3px solid transparent; margin-bottom: -2px; border-radius: 4px 4px 0 0; transition: color .15s, border-color .15s; }
+        .tab-btn:hover { color: #0d6efd; background: #f0f4ff; }
+        .tab-btn.active { color: #0d6efd; border-bottom-color: #0d6efd; }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* Resume builder panel */
+        .resume-builder { background: #fff; border-radius: 8px; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,.08); text-align: center; }
+        .resume-builder h2 { font-size: 1.3rem; margin-bottom: 8px; }
+        .resume-builder p { color: #666; margin-bottom: 24px; font-size: .95rem; }
+        .resume-builder .btn-generate { font-size: 1rem; padding: 12px 32px; }
     </style>
 </head>
 <body>
@@ -136,6 +150,15 @@
 
 <div class="main-content">
 <div class="main-column">
+
+<!-- Tab bar -->
+<div class="tab-bar">
+    <button class="tab-btn {% if request.GET.tab != 'resume' %}active{% endif %}" onclick="switchTab('postings')">Job Postings</button>
+    <button class="tab-btn {% if request.GET.tab == 'resume' %}active{% endif %}" onclick="switchTab('resume')">Resume Builder</button>
+</div>
+
+<!-- Tab: Job Postings -->
+<div id="tab-postings" class="tab-panel {% if request.GET.tab != 'resume' %}active{% endif %}">
 
 {% if hunt %}
 <!-- Toolbar: sort + filters + add -->
@@ -202,6 +225,32 @@
     {% endfor %}
 </div>
 {% endif %}
+
+</div><!-- tab-postings -->
+
+<!-- Tab: Resume Builder -->
+<div id="tab-resume" class="tab-panel {% if request.GET.tab == 'resume' %}active{% endif %}">
+    <div class="resume-builder">
+        <h2>Resume Builder</h2>
+        <p>Generates a PDF resume from <code>cv_builder/src/data.yml</code> using the configured LaTeX template.</p>
+        <div id="resume-idle">
+            <button type="button" class="btn btn-primary btn-generate" onclick="startResumeBuild()">Generate Resume</button>
+        </div>
+        <div id="resume-building" style="display:none;">
+            <div style="font-size:1.1rem; margin-bottom:12px;">⏳ Building… this may take a minute or two.</div>
+            <div style="color:#666; font-size:.9rem;">Docker is running the LaTeX pipeline in the background.</div>
+        </div>
+        <div id="resume-done" style="display:none;">
+            <div style="color:#198754; font-size:1.1rem; margin-bottom:16px;">✅ Resume generated!</div>
+            <a href="{% url 'download_resume' %}" class="btn btn-success btn-generate" target="_blank">Open PDF</a>
+            <button type="button" class="btn btn-secondary" style="margin-left:8px; padding:12px 24px; font-size:1rem;" onclick="startResumeBuild()">Regenerate</button>
+        </div>
+        <div id="resume-error" style="display:none;">
+            <div style="color:#dc3545; font-size:1rem; margin-bottom:16px;" id="resume-error-msg"></div>
+            <button type="button" class="btn btn-primary btn-generate" onclick="startResumeBuild()">Retry</button>
+        </div>
+    </div>
+</div><!-- tab-resume -->
 
 </div><!-- main-column -->
 
@@ -401,6 +450,78 @@ function openApplyModal(postingId, title) {
     }
     updateTimers();
     setInterval(updateTimers, 1000);
+})();
+
+function switchTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    event.currentTarget.classList.add('active');
+    const url = new URL(window.location);
+    if (tab === 'resume') {
+        url.searchParams.set('tab', 'resume');
+    } else {
+        url.searchParams.delete('tab');
+    }
+    history.replaceState({}, '', url);
+}
+
+// Resume builder
+let _resumePollInterval = null;
+
+function _setResumePanel(state, errorMsg) {
+    ['idle', 'building', 'done', 'error'].forEach(s => {
+        document.getElementById('resume-' + s).style.display = (s === state) ? '' : 'none';
+    });
+    if (errorMsg) document.getElementById('resume-error-msg').textContent = errorMsg;
+}
+
+function _pollResumeStatus() {
+    fetch('/job_hunt/resume-status/')
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'done') {
+                clearInterval(_resumePollInterval);
+                _resumePollInterval = null;
+                _setResumePanel('done');
+            } else if (data.status === 'error') {
+                clearInterval(_resumePollInterval);
+                _resumePollInterval = null;
+                _setResumePanel('error', data.error);
+            }
+            // still 'building' — keep polling
+        })
+        .catch(() => { /* network hiccup, keep polling */ });
+}
+
+function startResumeBuild() {
+    _setResumePanel('building');
+    fetch('/job_hunt/generate-resume/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+    })
+    .then(r => r.json())
+    .then(() => {
+        if (_resumePollInterval) clearInterval(_resumePollInterval);
+        _resumePollInterval = setInterval(_pollResumeStatus, 2000);
+    })
+    .catch(() => _setResumePanel('error', 'Failed to contact the server.'));
+}
+
+// If the page loads while a build is already in progress, resume polling
+(function() {
+    fetch('/job_hunt/resume-status/')
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'building') {
+                _setResumePanel('building');
+                _resumePollInterval = setInterval(_pollResumeStatus, 2000);
+            } else if (data.status === 'done') {
+                _setResumePanel('done');
+            } else if (data.status === 'error') {
+                _setResumePanel('error', data.error);
+            }
+        });
 })();
 
 function updateEventToNow(eventId) {

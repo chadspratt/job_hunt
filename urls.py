@@ -12,4 +12,7 @@ urlpatterns = [
     path('edit-application/<int:application_id>/', views.edit_application, name='edit_application'),
     path('create-event/', views.create_event, name='create_event'),
     path('event/<int:event_id>/update/', views.update_event, name='update_event'),
+    path('generate-resume/', views.generate_resume, name='generate_resume'),
+    path('resume-status/', views.resume_status, name='resume_status'),
+    path('download-resume/', views.download_resume, name='download_resume'),
 ]
