@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import threading
 from datetime import datetime
@@ -274,6 +275,115 @@ def download_resume(request):
         content_type='application/pdf',
         as_attachment=False,
         filename='resume.pdf',
+    )
+
+
+_POSTINGS_DIR = Path(__file__).resolve().parent / 'job_postings'
+
+# Per-posting state: {posting_id: {'status': ..., 'error': ''}}
+_posting_resume_states: dict = {}
+_posting_resume_lock = threading.Lock()
+
+
+def _run_posting_resume_build(posting_id: int, posting_dir: Path):
+    """Background thread: build a resume for a specific job posting."""
+    rendered_dir = _CV_BUILDER_DIR / 'src' / 'rendered'
+    rendered_dir.mkdir(exist_ok=True)
+    posting_data_yml = posting_dir / 'data.yml'
+    # Mount the posting's data.yml directly into the container so the original is never touched.
+    data_yml_mount = f'{posting_data_yml.resolve()}:/app/data.yml'
+
+    try:
+        for cmd, label in [
+            (['docker', 'compose', 'build', 'composer'], 'Docker build'),
+            (['docker', 'compose', '-p', 'cv', 'run', '--rm', '-v', data_yml_mount, 'composer', 'python', 'main.py'], 'Resume render'),
+            (['docker', 'compose', '-p', 'cv', 'run', '--rm', 'windmill', 'latexmk', '-pdf'], 'PDF build'),
+        ]:
+            r = subprocess.run(
+                cmd, cwd=_CV_BUILDER_DIR,
+                capture_output=True, text=True, timeout=600,
+            )
+            if r.returncode != 0:
+                with _posting_resume_lock:
+                    _posting_resume_states[posting_id] = {
+                        'status': 'error',
+                        'error': f'{label} failed: {(r.stderr or r.stdout)[-500:]}',
+                    }
+                return
+
+        if not (_CV_BUILDER_DIR / 'src' / 'rendered' / 'moderncv.pdf').exists():
+            with _posting_resume_lock:
+                _posting_resume_states[posting_id] = {
+                    'status': 'error',
+                    'error': 'PDF was not produced. Check the cv_builder output.',
+                }
+            return
+
+        # Copy all rendered artifacts to the posting directory
+        for artifact in rendered_dir.iterdir():
+            shutil.copy2(artifact, posting_dir / artifact.name)
+
+        with _posting_resume_lock:
+            _posting_resume_states[posting_id] = {'status': 'done', 'error': ''}
+
+    except subprocess.TimeoutExpired:
+        with _posting_resume_lock:
+            _posting_resume_states[posting_id] = {
+                'status': 'error',
+                'error': 'Resume generation timed out (>10 min).',
+            }
+    except FileNotFoundError:
+        with _posting_resume_lock:
+            _posting_resume_states[posting_id] = {
+                'status': 'error',
+                'error': 'Docker was not found. Ensure Docker Desktop is running.',
+            }
+
+
+@require_POST
+def generate_posting_resume(request, posting_id):
+    """Kick off a per-posting resume build in a background thread."""
+    get_object_or_404(JobPosting, id=posting_id)
+
+    posting_dir = _POSTINGS_DIR / str(posting_id)
+    posting_dir.mkdir(exist_ok=True)
+
+    # Seed data.yml from cv_builder/src/data.yml if not already present
+    src_data_yml = _CV_BUILDER_DIR / 'src' / 'data.yml'
+    posting_data_yml = posting_dir / 'data.yml'
+    if not posting_data_yml.exists():
+        shutil.copy2(src_data_yml, posting_data_yml)
+
+    with _posting_resume_lock:
+        if _posting_resume_states.get(posting_id, {}).get('status') == 'building':
+            return JsonResponse({'status': 'building'})
+        _posting_resume_states[posting_id] = {'status': 'building', 'error': ''}
+
+    threading.Thread(
+        target=_run_posting_resume_build,
+        args=(posting_id, posting_dir),
+        daemon=True,
+    ).start()
+    return JsonResponse({'status': 'building'})
+
+
+def posting_resume_status(request, posting_id):
+    """Return the current build status for a posting's resume."""
+    with _posting_resume_lock:
+        state = _posting_resume_states.get(posting_id, {'status': 'idle', 'error': ''})
+    return JsonResponse(dict(state))
+
+
+def download_posting_resume(request, posting_id):
+    """Serve the generated PDF for a posting."""
+    pdf_path = _POSTINGS_DIR / str(posting_id) / 'moderncv.pdf'
+    if not pdf_path.exists():
+        return JsonResponse({'error': 'No PDF found. Generate one first.'}, status=404)
+    return FileResponse(
+        open(pdf_path, 'rb'),
+        content_type='application/pdf',
+        as_attachment=False,
+        filename=f'resume-posting-{posting_id}.pdf',
     )
 
 

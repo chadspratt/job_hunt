@@ -15,4 +15,7 @@ urlpatterns = [
     path('generate-resume/', views.generate_resume, name='generate_resume'),
     path('resume-status/', views.resume_status, name='resume_status'),
     path('download-resume/', views.download_resume, name='download_resume'),
+    path('posting/<int:posting_id>/generate-resume/', views.generate_posting_resume, name='generate_posting_resume'),
+    path('posting/<int:posting_id>/resume-status/', views.posting_resume_status, name='posting_resume_status'),
+    path('posting/<int:posting_id>/download-resume/', views.download_posting_resume, name='download_posting_resume'),
 ]

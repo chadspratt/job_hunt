@@ -216,6 +216,9 @@
             {% endif %}
             <a class="btn btn-secondary btn-sm" href="{% url 'edit_posting' posting.id %}">Edit</a>
             <a class="btn btn-sm {% if posting.hidden %}btn-primary{% else %}btn-danger{% endif %}" href="{% url 'toggle_posting_hidden' posting.id %}">{% if posting.hidden %}Unhide{% else %}Hide{% endif %}</a>
+            <div id="resume-ctrl-{{ posting.id }}" style="display:flex; flex-direction:column; gap:4px; align-items:flex-end;">
+                <button class="btn btn-primary btn-sm" onclick="startPostingResume({{ posting.id }})">Create Resume</button>
+            </div>
         </div>
     </div>
     {% empty %}
@@ -522,6 +525,76 @@ function startResumeBuild() {
                 _setResumePanel('error', data.error);
             }
         });
+})();
+
+// Per-posting resume build
+const _postingResumePollers = {};
+
+function _setPostingResumeCtrl(postingId, state, errorMsg) {
+    const ctrl = document.getElementById('resume-ctrl-' + postingId);
+    if (!ctrl) return;
+    if (state === 'idle') {
+        ctrl.innerHTML = '<button class="btn btn-primary btn-sm" onclick="startPostingResume(' + postingId + ')">Create Resume</button>';
+    } else if (state === 'building') {
+        ctrl.innerHTML = '<button class="btn btn-secondary btn-sm" disabled>⏳ Building…</button>';
+    } else if (state === 'done') {
+        ctrl.innerHTML = '<a class="btn btn-success btn-sm" href="/job_hunt/posting/' + postingId + '/download-resume/" target="_blank">Open PDF</a>' +
+            ' <button class="btn btn-primary btn-sm" onclick="startPostingResume(' + postingId + ')">Rebuild</button>';
+    } else if (state === 'error') {
+        ctrl.innerHTML = '<span style="color:#dc3545;font-size:.75rem;max-width:160px;display:block;" title="' + (errorMsg||'').replace(/"/g,'&quot;') + '">⚠ Build failed</span>' +
+            '<button class="btn btn-primary btn-sm" onclick="startPostingResume(' + postingId + ')">Retry</button>';
+    }
+}
+
+function _pollPostingResume(postingId) {
+    fetch('/job_hunt/posting/' + postingId + '/resume-status/')
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'done') {
+                clearInterval(_postingResumePollers[postingId]);
+                delete _postingResumePollers[postingId];
+                _setPostingResumeCtrl(postingId, 'done');
+            } else if (data.status === 'error') {
+                clearInterval(_postingResumePollers[postingId]);
+                delete _postingResumePollers[postingId];
+                _setPostingResumeCtrl(postingId, 'error', data.error);
+            }
+        })
+        .catch(() => {});
+}
+
+function startPostingResume(postingId) {
+    _setPostingResumeCtrl(postingId, 'building');
+    fetch('/job_hunt/posting/' + postingId + '/generate-resume/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+    })
+    .then(r => r.json())
+    .then(() => {
+        if (_postingResumePollers[postingId]) clearInterval(_postingResumePollers[postingId]);
+        _postingResumePollers[postingId] = setInterval(() => _pollPostingResume(postingId), 2000);
+    })
+    .catch(() => _setPostingResumeCtrl(postingId, 'error', 'Failed to contact the server.'));
+}
+
+// Restore in-progress states on page load
+(function() {
+    document.querySelectorAll('[id^="resume-ctrl-"]').forEach(ctrl => {
+        const postingId = parseInt(ctrl.id.replace('resume-ctrl-', ''), 10);
+        fetch('/job_hunt/posting/' + postingId + '/resume-status/')
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'building') {
+                    _setPostingResumeCtrl(postingId, 'building');
+                    _postingResumePollers[postingId] = setInterval(() => _pollPostingResume(postingId), 2000);
+                } else if (data.status === 'done') {
+                    _setPostingResumeCtrl(postingId, 'done');
+                } else if (data.status === 'error') {
+                    _setPostingResumeCtrl(postingId, 'error', data.error);
+                }
+            })
+            .catch(() => {});
+    });
 })();
 
 function updateEventToNow(eventId) {
