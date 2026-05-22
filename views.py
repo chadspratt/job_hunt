@@ -5,6 +5,8 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+import yaml
+
 from django.contrib import messages
 from django.http import FileResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -385,6 +387,100 @@ def download_posting_resume(request, posting_id):
         as_attachment=False,
         filename=f'resume-posting-{posting_id}.pdf',
     )
+
+
+def resume_config(request, posting_id):
+    """Return base data.yml config with current posting selections (GET)."""
+    get_object_or_404(JobPosting, id=posting_id)
+
+    base_data_yml = _CV_BUILDER_DIR / 'src' / 'data.yml'
+    with open(base_data_yml, 'r', encoding='utf-8') as f:
+        base_data = yaml.safe_load(f)
+
+    posting_dir = _POSTINGS_DIR / str(posting_id)
+    posting_data_yml = posting_dir / 'data.yml'
+
+    selected_skills = None
+    selected_experience = None
+    selected_projects = None
+    selected_open_source = None
+
+    if posting_data_yml.exists():
+        with open(posting_data_yml, 'r', encoding='utf-8') as f:
+            posting_data = yaml.safe_load(f) or {}
+        if 'skills' in posting_data:
+            selected_skills = {s['name'] for s in posting_data.get('skills', [])}
+        if 'experience' in posting_data:
+            selected_experience = {e['place'] for e in posting_data.get('experience', [])}
+        if 'projects' in posting_data:
+            selected_projects = {p['name'] for p in posting_data.get('projects', [])}
+        if 'openSource' in posting_data:
+            selected_open_source = {o['name'] for o in posting_data.get('openSource', [])}
+
+    skills = [
+        {'name': s['name'], 'checked': selected_skills is None or s['name'] in selected_skills}
+        for s in base_data.get('skills', [])
+    ]
+    experience = [
+        {'place': e['place'], 'checked': selected_experience is None or e['place'] in selected_experience}
+        for e in base_data.get('experience', [])
+    ]
+    projects = [
+        {'name': p['name'], 'checked': selected_projects is None or p['name'] in selected_projects}
+        for p in base_data.get('projects', [])
+    ]
+    open_source = [
+        {'name': o['name'], 'checked': selected_open_source is None or o['name'] in selected_open_source}
+        for o in base_data.get('openSource', [])
+    ]
+
+    return JsonResponse({
+        'skills': skills,
+        'experience': experience,
+        'projects': projects,
+        'openSource': open_source,
+    })
+
+
+@require_POST
+def save_resume_config(request, posting_id):
+    """Save filtered data.yml for a posting based on selected items."""
+    get_object_or_404(JobPosting, id=posting_id)
+
+    try:
+        data = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    selected_skills = set(data.get('skills', []))
+    selected_experience = set(data.get('experience', []))
+    selected_projects = set(data.get('projects', []))
+    selected_open_source = set(data.get('openSource', []))
+
+    base_data_yml = _CV_BUILDER_DIR / 'src' / 'data.yml'
+    with open(base_data_yml, 'r', encoding='utf-8') as f:
+        base_data = yaml.safe_load(f)
+
+    filtered = {
+        'personal': base_data.get('personal'),
+        'education': base_data.get('education'),
+        'skills': [s for s in base_data.get('skills', []) if s['name'] in selected_skills],
+        'experience': [e for e in base_data.get('experience', []) if e['place'] in selected_experience],
+        'projects': [p for p in base_data.get('projects', []) if p['name'] in selected_projects],
+        'openSource': [o for o in base_data.get('openSource', []) if o['name'] in selected_open_source],
+    }
+    for key in ('freeformQA',):
+        if key in base_data:
+            filtered[key] = base_data[key]
+
+    posting_dir = _POSTINGS_DIR / str(posting_id)
+    posting_dir.mkdir(exist_ok=True)
+    posting_data_yml = posting_dir / 'data.yml'
+
+    with open(posting_data_yml, 'w', encoding='utf-8') as f:
+        yaml.dump(filtered, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+    return JsonResponse({'success': True})
 
 
 @require_POST

@@ -103,6 +103,12 @@
         .tab-panel { display: none; }
         .tab-panel.active { display: block; }
 
+        /* Resume config modal sections */
+        .resume-config-section { margin-bottom: 16px; }
+        .resume-config-section h3 { font-size: .9rem; font-weight: 700; color: #444; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid #e9ecef; }
+        .resume-config-section .form-check { margin-bottom: 4px; padding: 3px 0; }
+        .resume-config-section .form-check:hover { background: #f8f9fa; border-radius: 3px; }
+
         /* Resume builder panel */
         .resume-builder { background: #fff; border-radius: 8px; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,.08); text-align: center; }
         .resume-builder h2 { font-size: 1.3rem; margin-bottom: 8px; }
@@ -216,6 +222,7 @@
             {% endif %}
             <a class="btn btn-secondary btn-sm" href="{% url 'edit_posting' posting.id %}">Edit</a>
             <a class="btn btn-sm {% if posting.hidden %}btn-primary{% else %}btn-danger{% endif %}" href="{% url 'toggle_posting_hidden' posting.id %}">{% if posting.hidden %}Unhide{% else %}Hide{% endif %}</a>
+            <button class="btn btn-warning btn-sm" onclick="openResumeConfig({{ posting.id }}, '{{ posting.title|escapejs }}')">Edit Resume</button>
             <div id="resume-ctrl-{{ posting.id }}" style="display:flex; flex-direction:column; gap:4px; align-items:flex-end;">
                 <button class="btn btn-primary btn-sm" onclick="startPostingResume({{ posting.id }})">Create Resume</button>
             </div>
@@ -619,6 +626,91 @@ function updateEventToNow(eventId) {
         alert('Error updating event');
     });
 }
+
+// Resume config modal
+let _resumeConfigPostingId = null;
+
+function openResumeConfig(postingId, title) {
+    _resumeConfigPostingId = postingId;
+    document.getElementById('resumeConfigTitle').textContent = title;
+    const body = document.getElementById('resumeConfigBody');
+    const saveMsg = document.getElementById('resumeConfigSaveMsg');
+    body.innerHTML = '<div style="text-align:center; padding:20px; color:#666;">Loading…</div>';
+    saveMsg.style.display = 'none';
+    document.getElementById('resumeConfigSaveBtn').disabled = false;
+    document.getElementById('resumeConfigModal').classList.add('active');
+
+    fetch('/job_hunt/posting/' + postingId + '/resume-config/')
+        .then(r => r.json())
+        .then(data => { body.innerHTML = _buildResumeConfigHTML(data); })
+        .catch(() => { body.innerHTML = '<div style="color:#dc3545;">Failed to load configuration.</div>'; });
+}
+
+function _checkboxSection(title, items, inputName, labelKey) {
+    if (!items || items.length === 0) return '';
+    let html = '<div class="resume-config-section"><h3>' + title + '</h3>';
+    items.forEach(function(item, i) {
+        const val = item[labelKey];
+        const safeVal = val.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+        const id = 'rcc_' + inputName + '_' + i;
+        html += '<label class="form-check" for="' + id + '">' +
+            '<input type="checkbox" id="' + id + '" name="' + inputName + '" value="' + safeVal + '"' + (item.checked ? ' checked' : '') + '> ' +
+            val + '</label>';
+    });
+    return html + '</div>';
+}
+
+function _buildResumeConfigHTML(data) {
+    return _checkboxSection('Skills', data.skills, 'skill', 'name') +
+           _checkboxSection('Experience', data.experience, 'experience', 'place') +
+           _checkboxSection('Projects', data.projects, 'project', 'name') +
+           _checkboxSection('Open Source', data.openSource, 'openSource', 'name');
+}
+
+function saveResumeConfig() {
+    if (!_resumeConfigPostingId) return;
+    const modal = document.getElementById('resumeConfigModal');
+    const saveMsg = document.getElementById('resumeConfigSaveMsg');
+    const saveBtn = document.getElementById('resumeConfigSaveBtn');
+    saveBtn.disabled = true;
+    saveMsg.style.display = 'none';
+
+    function getChecked(inputName) {
+        return Array.from(modal.querySelectorAll('input[name="' + inputName + '"]:checked')).map(el => el.value);
+    }
+
+    const payload = {
+        skills: getChecked('skill'),
+        experience: getChecked('experience'),
+        projects: getChecked('project'),
+        openSource: getChecked('openSource'),
+    };
+
+    fetch('/job_hunt/posting/' + _resumeConfigPostingId + '/save-resume-config/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}',
+        },
+        body: JSON.stringify(payload),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('resumeConfigModal').classList.remove('active');
+            saveBtn.disabled = false;
+        } else {
+            saveMsg.textContent = 'Error: ' + (data.error || 'Unknown error');
+            saveMsg.style.cssText = 'display:block; color:#dc3545; margin-top:8px; font-size:.85rem;';
+            saveBtn.disabled = false;
+        }
+    })
+    .catch(() => {
+        saveMsg.textContent = 'Failed to contact the server.';
+        saveMsg.style.cssText = 'display:block; color:#dc3545; margin-top:8px; font-size:.85rem;';
+        saveBtn.disabled = false;
+    });
+}
 </script>
 
 <!-- New Event Modal -->
@@ -640,6 +732,19 @@ function updateEventToNow(eventId) {
                 <button type="submit" class="btn btn-primary">Add Event</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- Resume Config Modal -->
+<div class="modal-overlay" id="resumeConfigModal" onclick="if(event.target===this)this.classList.remove('active')">
+    <div class="modal" style="width:560px;">
+        <h2>Edit Resume – <span id="resumeConfigTitle"></span></h2>
+        <div id="resumeConfigBody"><div style="text-align:center; padding:20px; color:#666;">Loading…</div></div>
+        <div id="resumeConfigSaveMsg" style="display:none; margin-top:8px; font-size:.85rem;"></div>
+        <div class="form-actions">
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('resumeConfigModal').classList.remove('active')">Cancel</button>
+            <button type="button" class="btn btn-primary" id="resumeConfigSaveBtn" onclick="saveResumeConfig()">Save</button>
+        </div>
     </div>
 </div>
 
